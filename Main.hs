@@ -31,18 +31,28 @@ data Stop = Stop
 
 instance Binary Stop
 
+-- | the message this challenge is about: consisting of 
+--   - a sequence number
+--   - a float value
+--
+-- An emitter will never send two messages with the same
+-- sequence number.
 data EmitFloat = EmitFloat !Int !Float
                deriving (Generic)
 
 instance Binary EmitFloat
 
+emitFloatSeq :: EmitFloat -> Int
+emitFloatSeq (EmitFloat s _) = s
+
+-- | A transport envelope for our float message.
 data EmitFloatEnv = EmitFloatEnv !ProcessId !Clock !EmitFloat
                   deriving (Generic)
 
 instance Binary EmitFloatEnv
 
 data AskResult = AskResult !ProcessId
-               | AskResultReply !Int !Float
+               | AskResultReply !Int !Int !Float
                deriving (Generic)
 
 instance Binary AskResult
@@ -75,6 +85,8 @@ boot sendFor waitFor seed = do
     -- to (0, 1].
     randomSeries = map (1.0 -) (randoms (mkStdGen seed))
 
+    -- we hand the emitter this unlimited supply of EmitFloat
+    -- values
     emitFloatSeries :: [EmitFloat]
     emitFloatSeries = zipWith EmitFloat [0..] randomSeries 
 
@@ -97,26 +109,34 @@ boot sendFor waitFor seed = do
   liftIO $ threadDelay (1000000 * waitFor)    
   selfPid <- getSelfPid
   send collector (AskResult selfPid)
-  AskResultReply count result <- expect
-  liftIO $ print (count, result)
+  AskResultReply count missing result <- expect
+
+  info $ "Received messages " ++ show count
+  info $ "Missing messages " ++ show missing
+  liftIO $ hPutStrLn stdout (show (count, result))
 
   return ()
 
+-- broadcasts floats to all nodes in a fire and
+-- forget manner.
 emit :: [EmitFloat] -> [NodeId] -> Process ()
-emit values receivers = go values
+emit values receivers = go 0 values
   where
-    go [] = return ()
-    go (v : vx) = do
+    go :: Int -> [EmitFloat] -> Process ()
+    go n (v : vx) = do
       -- non-blockingly check for `Stop` signal
       mStop <- expectTimeout 0
       case mStop of
-        Just Stop -> return ()
+        Just Stop -> do
+          info $ "Emitted " ++ show n ++ " floats"
+          return ()
         _         -> do
           self      <- getSelfPid
           timestamp <- round <$> liftIO getPOSIXTime :: Process Clock
           let msg = EmitFloatEnv self timestamp v
           for_ receivers (\node -> nsendRemote node collectorProcess msg)
-          go vx
+          go (n + 1) vx
+    go _ [] = return ()
 
 -- float collector
 collect :: Process a
@@ -133,6 +153,19 @@ collect = go Map.empty
         sorted = 
           List.sortBy (comparing snd) (List.concat (Map.elems msgs))
 
+    -- since each EmitFloat is numbered sequentially we can easily
+    -- determine what the missing messages are.
+    countMissing :: Map NodeId [(EmitFloat, Clock)] -> Int
+    countMissing msgs =
+      sum [ n
+          | values <-
+              map (List.sortBy (comparing (emitFloatSeq . fst))) (Map.elems msgs)
+          , let (_, n) = foldr
+                  (\x (lastX, acc) -> (x, acc + (lastX - x)))
+                  (0, 0)
+                  (map (emitFloatSeq . fst) values)
+          ]
+         
     -- receive new emitted floats and wait for timeout
     go :: Map NodeId [(EmitFloat, Clock)] -> Process a
     go msgs = do
@@ -142,10 +175,19 @@ collect = go Map.empty
         ]
       case cmd of
         Right (EmitFloatEnv sender timestamp emitFloat) -> 
-          go (Map.insertWith (++) (processNodeId sender) [(emitFloat, timestamp)] msgs)
+          -- We have just received an EmitFloat from a remote peer.
+          -- Since every EmitFloat has a sequence number we can easily
+          -- determine if we missed messages from that peer in the past.
+          -- We could now ask other nodes to forward these missing messages
+          -- to us.
+          go (Map.insertWith
+               (++) -- using (++) here is ok: it is [new] ++ old, not old ++ [new]
+               (processNodeId sender)
+               [(emitFloat, timestamp)] msgs)
         Left (AskResult sender) -> do
           let (count, val) = result msgs
-          send sender (AskResultReply count val)
+              missing      = countMissing msgs
+          send sender (AskResultReply count missing val)
           go msgs
         _ -> go msgs
 
