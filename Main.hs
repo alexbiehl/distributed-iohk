@@ -159,7 +159,9 @@ collect = go Map.empty
     countMissing msgs =
       sum [ n
           | values <-
+              -- sort each bucket by sequence number
               map (List.sortBy (comparing (emitFloatSeq . fst))) (Map.elems msgs)
+              -- traverse the buckets and find gaps between the sequence numbers
           , let (_, n) = foldr
                   (\x (lastX, acc) -> (x, acc + (lastX - x)))
                   (0, 0)
