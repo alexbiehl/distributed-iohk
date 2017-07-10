@@ -151,7 +151,9 @@ collect = go Map.empty
 
         sorted :: [(EmitFloat, Clock)]
         sorted =
-          List.sortBy (comparing snd) (List.concat (Map.elems msgs))
+          List.sortBy
+            (comparing snd <> comparing (emitFloatSeq . fst))
+            (List.concat (Map.elems msgs))
 
     -- since each EmitFloat is numbered sequentially we can easily
     -- determine what the missing messages are.
