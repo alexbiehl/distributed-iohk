@@ -52,7 +52,7 @@ parameters which are present in `nodeAddresses`.
 # Communication model
 
 `distributed-iohk` broadcasts its messages in a fire-and-forget manner. Since
-every emitted float is accompanied by a sequence number (starting from 0) we can
+every emitted float is accompanied by a sequence number (starting from 1) we can
 easily determine which messages have been dropped. In the current model we
 maintain total order over the messages by storing every single one. This may not
 be suitable to a real world scenario as this would ideally require unlimited

@@ -31,7 +31,7 @@ data Stop = Stop
 
 instance Binary Stop
 
--- | the message this challenge is about: consisting of 
+-- | the message this challenge is about: consisting of
 --   - a sequence number
 --   - a float value
 --
@@ -78,7 +78,7 @@ boot :: Int -> Int -> Int -> Process ()
 boot sendFor waitFor seed = do
 
   self <- getSelfNode
-  
+
   let
     randomSeries :: [Float]
     -- transform the random floats from interval [0, 1)
@@ -88,12 +88,12 @@ boot sendFor waitFor seed = do
     -- we hand the emitter this unlimited supply of EmitFloat
     -- values
     emitFloatSeries :: [EmitFloat]
-    emitFloatSeries = zipWith EmitFloat [0..] randomSeries 
+    emitFloatSeries = zipWith EmitFloat [1..] randomSeries
 
     -- don't include current node in the receivers
     nodes :: [NodeId]
     nodes = [ node | node <- allNodes,  self /= node ]
-            
+
   -- Collector process
   collector <- spawnLocal collect
   -- publish the process
@@ -106,7 +106,7 @@ boot sendFor waitFor seed = do
   send emitter Stop
 
   info $ "Gracefully waiting for " ++ show waitFor ++ " seconds"
-  liftIO $ threadDelay (1000000 * waitFor)    
+  liftIO $ threadDelay (1000000 * waitFor)
   selfPid <- getSelfPid
   send collector (AskResult selfPid)
   AskResultReply count missing result <- expect
@@ -150,7 +150,7 @@ collect = go Map.empty
         f (EmitFloat i v) acc = acc + fromIntegral i * v
 
         sorted :: [(EmitFloat, Clock)]
-        sorted = 
+        sorted =
           List.sortBy (comparing snd) (List.concat (Map.elems msgs))
 
     -- since each EmitFloat is numbered sequentially we can easily
@@ -167,7 +167,7 @@ collect = go Map.empty
                   (0, 0)
                   (map (emitFloatSeq . fst) values)
           ]
-         
+
     -- receive new emitted floats and wait for timeout
     go :: Map NodeId [(EmitFloat, Clock)] -> Process a
     go msgs = do
@@ -176,7 +176,7 @@ collect = go Map.empty
         , match (\askResult@AskResult{} -> return (Left askResult))
         ]
       case cmd of
-        Right (EmitFloatEnv sender timestamp emitFloat) -> 
+        Right (EmitFloatEnv sender timestamp emitFloat) ->
           -- We have just received an EmitFloat from a remote peer.
           -- Since every EmitFloat has a sequence number we can easily
           -- determine if we missed messages from that peer in the past.
@@ -208,7 +208,7 @@ main = do
                <*> option auto (long "with-seed" <> metavar "INT" <> value 123456)
                <*> option auto (long "host" <> metavar "HOST" <> value "127.0.0.1")
                <*> option auto (long "port" <> metavar "PORT" <> value (8081 :: Int))
-  
+
   (sendFor, waitFor, seed, host, port) <-
     execParser (Options.Applicative.info (options <**> helper) mempty)
 
@@ -216,4 +216,4 @@ main = do
     createTransport host (show port) defaultTCPParameters
   node <- newLocalNode transport initRemoteTable
   runProcess node (boot sendFor waitFor seed)
-  closeTransport transport  
+  closeTransport transport
