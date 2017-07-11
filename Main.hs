@@ -165,9 +165,9 @@ collect = go Map.empty
               map (List.sortBy (comparing (emitFloatSeq . fst))) (Map.elems msgs)
               -- traverse the buckets and find gaps between the sequence numbers
           , let (_, n) = foldr
-                  (\x (lastX, acc) -> (x, acc + (lastX - x)))
-                  (0, 0)
-                  (map (emitFloatSeq . fst) values)
+                         (\x (lastX, acc) -> (x, acc + (lastX - x - 1)))
+                         (0, 0)
+                         (map (emitFloatSeq . fst) values)
           ]
 
     -- receive new emitted floats and wait for timeout
